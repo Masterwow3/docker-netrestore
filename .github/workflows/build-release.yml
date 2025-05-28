@@ -1,0 +1,72 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Build Windows Executable
+    runs-on: ubuntu-latest
+
+    outputs:
+      versionBuild: ${{ steps.version.outputs.versionBuild }}
+      release_version: ${{ steps.version.outputs.release_version }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # wichtig für git log
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Calculate versionBuild and commitSha
+        id: version
+        run: |
+          versionBuild=$(git --no-pager log --oneline | grep -v "skip-ci" | wc -l)
+          commitsha=$(git rev-parse --short HEAD)
+          release_version="1.${versionBuild}.0"
+          echo "versionBuild=$versionBuild" >> $GITHUB_OUTPUT
+          echo "commitsha=$commitsha" >> $GITHUB_OUTPUT
+          echo "release_version=$release_version" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Install Dependencies
+        run: go get -v ./...
+
+      - name: Build Windows Executable
+        run: |
+          mkdir -p deploy
+          env GOOS=windows GOARCH=amd64 go build -o ./deploy/netrestore.exe -ldflags "-X main.commitSha=${{ steps.version.outputs.commitsha }} -X main.versionBuild=${{ steps.version.outputs.versionBuild }}" ./cmd/main.go
+
+      - name: Upload Release Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: netrestore.exe
+          path: deploy/netrestore.exe
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: netrestore.exe
+          path: deploy
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ needs.build.outputs.release_version }}
+          tag_name: v${{ needs.build.outputs.release_version }}
+          files: deploy/netrestore.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}

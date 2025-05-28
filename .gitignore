@@ -1,0 +1,4 @@
+__debug_bin*
+.vscode/
+main.exe
+cmd/local-kv.db
